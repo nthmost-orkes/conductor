@@ -43,7 +43,9 @@ class DoWhileSpec extends AbstractSpecification {
                 'do_while_five_loop_over_integration_test.json',
                 'do_while_system_tasks.json',
                 'do_while_with_decision_task.json',
-                'do_while_set_variable_fix.json')
+                'do_while_set_variable_fix.json',
+                'do_while_high_iteration_test.json',
+                'do_while_list_iteration_integration_test.json')
     }
 
     def "Test workflow with 2 iterations of five tasks"() {
@@ -1225,6 +1227,123 @@ class DoWhileSpec extends AbstractSpecification {
         }
     }
 
+
+    /**
+     * Regression test for GitHub issue #799 / PR #822 — overflow only.
+     *
+     * Before the fix, WorkflowExecutorOps.decide() called itself recursively each time a
+     * synchronous system task (e.g. LAMBDA inside a DO_WHILE) changed workflow state.
+     * At high iteration counts (~400+) this produced a StackOverflowError.
+     *
+     * The fix replaces the recursive call with an iterative loop. This test verifies that
+     * a DO_WHILE with 500 synchronous LAMBDA iterations completes without error.
+     */
+    def "Test DO_WHILE with 500 LAMBDA iterations completes without StackOverflowError"() {
+        given: "A DO_WHILE workflow set to run 500 LAMBDA iterations"
+        def workflowInput = new HashMap()
+        workflowInput['loop'] = 500
+
+        when: "The workflow is started"
+        def workflowInstanceId = startWorkflow("do_while_high_iteration_test", 1, "overflow-regression", workflowInput, null)
+
+        then: "The workflow completes successfully with all 500 LAMBDA tasks plus the DO_WHILE task"
+        with(workflowExecutionService.getExecutionStatus(workflowInstanceId, true)) {
+            status == Workflow.WorkflowStatus.COMPLETED
+            tasks.size() == 501  // 1 DO_WHILE + 500 LAMBDA
+            tasks[0].taskType == 'DO_WHILE'
+            tasks[0].status == Task.Status.COMPLETED
+            tasks[0].iteration == 500
+            tasks[1].taskType == 'LAMBDA'
+            tasks[1].status == Task.Status.COMPLETED
+            tasks[1].iteration == 1
+            tasks[500].taskType == 'LAMBDA'
+            tasks[500].status == Task.Status.COMPLETED
+            tasks[500].iteration == 500
+        }
+    }
+
+    /**
+     * Regression test for GitHub issue #799 / PR #822 — overflow AND wrong loop count.
+     *
+     * The Do_While_Workflow_Iteration_Fix workflow uses ${loopTask['iteration']} in the LAMBDA
+     * script to compute a 0-based index (iteration - 1). At high iteration counts the old
+     * recursive decide() would either overflow OR produce a wrong iteration counter because the
+     * recursive call re-entered the loop mid-execution.
+     *
+     * This test verifies both that the workflow completes and that every LAMBDA task reports the
+     * correct iteration-based output value.
+     */
+    def "Test DO_WHILE iteration counter is correct at 500 iterations (issue #799)"() {
+        given: "A DO_WHILE workflow that reads the loop iteration counter in each LAMBDA task"
+        def workflowInput = new HashMap()
+        workflowInput['loop'] = 500
+
+        when: "The workflow is started"
+        def workflowInstanceId = startWorkflow("Do_While_Workflow_Iteration_Fix", 1, "iteration-count-regression", workflowInput, null)
+
+        then: "The workflow completes and the last LAMBDA task reports the correct (0-based) index"
+        with(workflowExecutionService.getExecutionStatus(workflowInstanceId, true)) {
+            status == Workflow.WorkflowStatus.COMPLETED
+            tasks.size() == 501  // 1 DO_WHILE + 500 LAMBDA (form_uri)
+            tasks[0].taskType == 'DO_WHILE'
+            tasks[0].status == Task.Status.COMPLETED
+            tasks[0].iteration == 500
+            // First iteration: loopTask.iteration == 1, so result == 0
+            tasks[1].taskType == 'LAMBDA'
+            tasks[1].status == Task.Status.COMPLETED
+            tasks[1].outputData.get("result") == 0
+            // Last iteration: loopTask.iteration == 500, so result == 499
+            tasks[500].taskType == 'LAMBDA'
+            tasks[500].status == Task.Status.COMPLETED
+            tasks[500].outputData.get("result") == 499
+        }
+    }
+
+    def "Test DO_WHILE list iteration with items parameter iterates over each item"() {
+        given: "A list of items to iterate over"
+        def workflowInput = new HashMap()
+        workflowInput['items'] = ['apple', 'banana', 'cherry']
+
+        when: "A do_while_list_iteration workflow is started"
+        def workflowInstanceId = startWorkflow("do_while_list_iteration", 1, "listtest", workflowInput, null)
+
+        then: "Verify the workflow runs all 3 iterations via LAMBDA tasks and completes"
+        with(workflowExecutionService.getExecutionStatus(workflowInstanceId, true)) {
+            status == Workflow.WorkflowStatus.COMPLETED
+            // DO_WHILE task + 1 LAMBDA per iteration = 4 tasks total
+            tasks.size() == 4
+            tasks[0].taskType == 'DO_WHILE'
+            tasks[0].status == Task.Status.COMPLETED
+            tasks[0].iteration == 3
+            tasks[1].taskType == 'LAMBDA'
+            tasks[1].status == Task.Status.COMPLETED
+            tasks[1].iteration == 1
+            tasks[2].taskType == 'LAMBDA'
+            tasks[2].status == Task.Status.COMPLETED
+            tasks[2].iteration == 2
+            tasks[3].taskType == 'LAMBDA'
+            tasks[3].status == Task.Status.COMPLETED
+            tasks[3].iteration == 3
+        }
+    }
+
+    def "Test DO_WHILE list iteration with empty items list completes immediately"() {
+        given: "An empty items list"
+        def workflowInput = new HashMap()
+        workflowInput['items'] = []
+
+        when: "A do_while_list_iteration workflow is started with an empty list"
+        def workflowInstanceId = startWorkflow("do_while_list_iteration", 1, "emptylisttest", workflowInput, null)
+
+        then: "Verify the workflow completes immediately without executing any loop body tasks"
+        with(workflowExecutionService.getExecutionStatus(workflowInstanceId, true)) {
+            status == Workflow.WorkflowStatus.COMPLETED
+            // Only the DO_WHILE task itself, no LAMBDA tasks scheduled
+            tasks.size() == 1
+            tasks[0].taskType == 'DO_WHILE'
+            tasks[0].status == Task.Status.COMPLETED
+        }
+    }
 
     void verifyTaskIteration(Task task, int iteration) {
         assert task.getReferenceTaskName().endsWith(TaskUtils.getLoopOverTaskRefNameSuffix(task.getIteration()))
