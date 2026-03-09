@@ -126,15 +126,8 @@ public class Join extends WorkflowSystemTask {
 
     @Override
     public Optional<Long> getEvaluationOffset(TaskModel taskModel, long maxOffset) {
-        // Check if joinMode is set to SYNC — read directly from the workflow task definition
-        // rather than from input data so the value is never duplicated into the task's payload.
-        WorkflowTask workflowTask = taskModel.getWorkflowTask();
-        if (workflowTask != null && WorkflowTask.JoinMode.SYNC == workflowTask.getJoinMode()) {
-            // Synchronous mode: evaluate immediately every time (no backoff)
-            return Optional.of(0L);
-        }
-
-        // Asynchronous mode (default): use exponential backoff
+        // SYNC joins are executed inline (isAsync returns false) so this method is only
+        // reached for ASYNC joins. Apply exponential backoff.
         int pollCount = taskModel.getPollCount();
         // Assuming pollInterval = 50ms and evaluationOffsetThreshold = 200 this will cause
         // a JOIN task to be evaluated continuously during the first 10 seconds and the FORK/JOIN
@@ -149,5 +142,15 @@ public class Join extends WorkflowSystemTask {
 
     public boolean isAsync() {
         return true;
+    }
+
+    /**
+     * SYNC joins execute in the same thread as the workflow decide loop — no queue roundtrip, no
+     * lock contention. ASYNC joins (the default) use the background executor queue.
+     */
+    @Override
+    public boolean isAsync(TaskModel task) {
+        WorkflowTask workflowTask = task.getWorkflowTask();
+        return workflowTask == null || workflowTask.getJoinMode() != WorkflowTask.JoinMode.SYNC;
     }
 }

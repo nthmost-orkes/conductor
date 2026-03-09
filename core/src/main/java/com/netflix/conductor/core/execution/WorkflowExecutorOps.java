@@ -1156,7 +1156,7 @@ public class WorkflowExecutorOps implements WorkflowExecutor {
                             && NON_TERMINAL_TASK.test(task)) {
                         WorkflowSystemTask workflowSystemTask =
                                 systemTaskRegistry.get(task.getTaskType());
-                        if (!workflowSystemTask.isAsync()
+                        if (!workflowSystemTask.isAsync(task)
                                 && workflowSystemTask.execute(workflow, task, this)) {
                             tasksToBeUpdated.add(task);
                             stateChanged = true;
@@ -1634,7 +1634,7 @@ public class WorkflowExecutorOps implements WorkflowExecutor {
                         && task.getStartTime() == 0) {
                     task.setStartTime(System.currentTimeMillis());
                 }
-                if (!workflowSystemTask.isAsync()) {
+                if (!workflowSystemTask.isAsync(task)) {
                     try {
                         // start execution of synchronous system tasks
                         workflowSystemTask.start(workflow, task, this);

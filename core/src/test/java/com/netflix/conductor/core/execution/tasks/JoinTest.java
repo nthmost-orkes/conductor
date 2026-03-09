@@ -21,6 +21,7 @@ import com.netflix.conductor.core.config.ConductorProperties;
 import com.netflix.conductor.model.TaskModel;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -36,24 +37,24 @@ public class JoinTest {
     }
 
     @Test
-    public void testSynchronousJoinModeEvaluationOffset() {
+    public void testIsAsyncPerTask() {
         ConductorProperties properties = mock(ConductorProperties.class);
-        when(properties.getSystemTaskPostponeThreshold()).thenReturn(200);
-
         Join join = new Join(properties);
-        TaskModel task = taskWithJoinMode(WorkflowTask.JoinMode.SYNC);
 
-        // Synchronous mode should always return 0 offset
-        task.setPollCount(100);
-        Optional<Long> offset = join.getEvaluationOffset(task, 10000L);
-        assertTrue(offset.isPresent());
-        assertEquals(0L, offset.get().longValue());
+        // SYNC mode: isAsync(task) returns false — join runs in the decide thread
+        assertFalse(join.isAsync(taskWithJoinMode(WorkflowTask.JoinMode.SYNC)));
 
-        // Even with high poll count, SYNC mode returns 0
-        task.setPollCount(500);
-        offset = join.getEvaluationOffset(task, 10000L);
-        assertTrue(offset.isPresent());
-        assertEquals(0L, offset.get().longValue());
+        // ASYNC mode: isAsync(task) returns true — join uses the background executor
+        assertTrue(join.isAsync(taskWithJoinMode(WorkflowTask.JoinMode.ASYNC)));
+
+        // No joinMode set: defaults to async
+        TaskModel noMode = new TaskModel();
+        noMode.setWorkflowTask(new WorkflowTask());
+        assertTrue(join.isAsync(noMode));
+
+        // Null workflowTask: defaults to async
+        TaskModel nullWt = new TaskModel();
+        assertTrue(join.isAsync(nullWt));
     }
 
     @Test
@@ -122,7 +123,8 @@ public class JoinTest {
         ConductorProperties properties = mock(ConductorProperties.class);
         Join join = new Join(properties);
 
-        // isAsync should always return true
+        // Class-level isAsync() always returns true so the task type is registered
+        // for queue-based processing (needed for ASYNC mode joins).
         assertTrue(join.isAsync());
     }
 }

@@ -89,6 +89,18 @@ public abstract class WorkflowSystemTask {
     }
 
     /**
+     * Returns whether this task instance should be executed asynchronously. Override to support
+     * per-task async/sync control (e.g. based on task configuration).
+     *
+     * <p>Defaults to {@link #isAsync()} for backward compatibility.
+     *
+     * @param task the task model instance being evaluated
+     */
+    public boolean isAsync(TaskModel task) {
+        return isAsync();
+    }
+
+    /**
      * @return True to keep task in 'IN_PROGRESS' state, and 'COMPLETE' later by an external
      *     message.
      */
