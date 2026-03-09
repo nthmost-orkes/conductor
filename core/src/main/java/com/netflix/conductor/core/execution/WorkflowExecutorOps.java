@@ -1850,7 +1850,9 @@ public class WorkflowExecutorOps implements WorkflowExecutor {
                     rerunFromTask.setInputData(taskInput);
                 }
                 if (systemTaskRegistry.isSystemTask(rerunFromTask.getTaskType())
-                        && !systemTaskRegistry.get(rerunFromTask.getTaskType()).isAsync()) {
+                        && !systemTaskRegistry
+                                .get(rerunFromTask.getTaskType())
+                                .isAsync(rerunFromTask)) {
                     // Start the synchronous system task directly
                     systemTaskRegistry
                             .get(rerunFromTask.getTaskType())
