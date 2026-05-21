@@ -25,6 +25,9 @@ import com.netflix.conductor.common.utils.TaskUtils;
 import com.netflix.conductor.core.exception.NonTransientException;
 import com.netflix.conductor.model.TaskModel;
 
+import lombok.extern.slf4j.Slf4j;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 import static org.conductoross.conductor.service.webhook.WebhookTaskService.Constants.WEBHOOK_DELIMITER;
 
 /**
@@ -33,12 +36,14 @@ import static org.conductoross.conductor.service.webhook.WebhookTaskService.Cons
  * <p>Backed by an in-process map; suitable for single-server deployments and tests. Multi-node
  * deployments should bind {@code RedisWebhookTaskService} (lands in a later PR) instead.
  */
+@Slf4j
 public class InMemoryWebhookTaskService implements WebhookTaskService {
 
     private final ConcurrentHashMap<String, Set<String>> storage = new ConcurrentHashMap<>();
 
     @Override
     public void put(TaskModel task, int workflowVersion) {
+        checkNotNull(task, "TaskModel cannot be null");
         Map<String, Object> expectedMatches = getAndValidateExpectedMatches(task);
         String hash = computeHash(task, workflowVersion, expectedMatches);
         storage.compute(
@@ -48,22 +53,33 @@ public class InMemoryWebhookTaskService implements WebhookTaskService {
                     bucket.add(task.getTaskId());
                     return bucket;
                 });
+        log.debug(
+                "Registered webhook task: taskId={}, workflowType={}, hash={}",
+                task.getTaskId(),
+                task.getWorkflowType(),
+                hash);
     }
 
     @Override
     public Set<String> get(String hash) {
+        checkNotNull(hash, "Hash cannot be null");
         Set<String> taskIds = storage.get(hash);
-        return taskIds == null ? Collections.emptySet() : new HashSet<>(taskIds);
+        Set<String> result = taskIds == null ? Collections.emptySet() : new HashSet<>(taskIds);
+        log.debug("Lookup webhook tasks: hash={}, found={}", hash, result.size());
+        return result;
     }
 
     @Override
     public void remove(String hash, String taskId) {
+        checkNotNull(hash, "Hash cannot be null");
+        checkNotNull(taskId, "TaskId cannot be null");
         storage.computeIfPresent(
                 hash,
                 (key, taskIds) -> {
                     taskIds.remove(taskId);
                     return taskIds.isEmpty() ? null : taskIds;
                 });
+        log.debug("Removed webhook task: taskId={}, hash={}", taskId, hash);
     }
 
     private String computeHash(
@@ -108,7 +124,17 @@ public class InMemoryWebhookTaskService implements WebhookTaskService {
         Map<String, Object> matches =
                 inputData == null ? null : (Map<String, Object>) inputData.get("matches");
         if (matches == null) {
-            throw new NonTransientException("Webhook task missing matches field");
+            log.error(
+                    "Webhook task missing matches field: taskId={}, workflowId={}, inputDataKeys={}",
+                    task.getTaskId(),
+                    task.getWorkflowInstanceId(),
+                    inputData == null ? "null" : inputData.keySet());
+            throw new NonTransientException(
+                    String.format(
+                            "Webhook task missing matches field: taskId=%s, workflowId=%s, refName=%s",
+                            task.getTaskId(),
+                            task.getWorkflowInstanceId(),
+                            task.getReferenceTaskName()));
         }
         return matches;
     }
