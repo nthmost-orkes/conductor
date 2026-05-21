@@ -181,41 +181,62 @@ public class WebhookWorker extends LifecycleAwareComponent {
 
         // Get all matchers for this webhook and try to match the event
         Map<String, Map<String, Object>> matchers = webhookDAO.getMatchers(event.getWebhookId());
-        for (Map.Entry<String, Map<String, Object>> entry : matchers.entrySet()) {
-            String key = entry.getKey();
-            Map<String, Object> value = entry.getValue();
 
-            if (value == null) {
-                LOGGER.debug(
-                        "Skipping misconfigured matcher entry for webhook {}: {}",
-                        event.getWebhookId(),
-                        key);
-                continue;
-            }
-
-            String hash =
-                    webhookHashingService.computeJsonHash(
-                            new StringBuilder(key),
-                            value,
-                            event.getBody(),
-                            event.getRequestParams());
-
-            if (hash == null) {
-                LOGGER.debug(
-                        "No matching hash for webhook {} with matcher key {}",
-                        event.getWebhookId(),
-                        key);
-                continue;
-            }
-
+        // If no matchers are configured, try to find tasks directly by webhookId
+        // This handles the case where tasks register with matches: {webhookId: "xxx"}
+        if (matchers.isEmpty()) {
+            LOGGER.debug(
+                    "No matchers configured for webhook {}, using direct task lookup",
+                    event.getWebhookId());
             try {
                 Map<String, Object> payload = getPayload(event);
-                LOGGER.debug(
-                        "Completing webhook tasks with hash: {} and payload: {}", hash, payload);
-                completeTask(hash, payload, matchedWorkflowIds);
+                completeTasksByWebhookId(event.getWebhookId(), payload, matchedWorkflowIds);
             } catch (JsonProcessingException e) {
                 LOGGER.error(
                         "Failed to parse webhook body for event {}: {}", messageId, e.getMessage());
+            }
+        } else {
+            // Use configured matchers for hash-based matching
+            for (Map.Entry<String, Map<String, Object>> entry : matchers.entrySet()) {
+                String key = entry.getKey();
+                Map<String, Object> value = entry.getValue();
+
+                if (value == null) {
+                    LOGGER.debug(
+                            "Skipping misconfigured matcher entry for webhook {}: {}",
+                            event.getWebhookId(),
+                            key);
+                    continue;
+                }
+
+                String hash =
+                        webhookHashingService.computeJsonHash(
+                                new StringBuilder(key),
+                                value,
+                                event.getBody(),
+                                event.getRequestParams());
+
+                if (hash == null) {
+                    LOGGER.debug(
+                            "No matching hash for webhook {} with matcher key {}",
+                            event.getWebhookId(),
+                            key);
+                    continue;
+                }
+
+                try {
+                    Map<String, Object> payload = getPayload(event);
+                    LOGGER.debug(
+                            "Completing webhook tasks with hash: {} and payload: {}",
+                            hash,
+                            payload);
+                    completeTask(hash, payload, matchedWorkflowIds);
+                } catch (JsonProcessingException e) {
+                    LOGGER.error(
+                            "Failed to parse webhook body for event {}: {}",
+                            messageId,
+                            e.getMessage());
+                }
             }
         }
 
@@ -276,6 +297,48 @@ public class WebhookWorker extends LifecycleAwareComponent {
         for (String taskId : taskIds) {
             completeTask(taskId, hash, payload, matchedWorkflowIds);
         }
+    }
+
+    private void completeTasksByWebhookId(
+            String webhookId, Map<String, Object> payload, Set<String> matchedWorkflowIds) {
+        Set<String> taskIds = webhookTaskService.getByWebhookId(webhookId);
+        LOGGER.debug("Found {} tasks waiting for webhookId: {}", taskIds.size(), webhookId);
+
+        for (String taskId : taskIds) {
+            // Use webhookId as the hash for removal (simplified, since we don't have the full hash)
+            completeTaskByWebhookId(taskId, webhookId, payload, matchedWorkflowIds);
+        }
+    }
+
+    private void completeTaskByWebhookId(
+            String taskId,
+            String webhookId,
+            Map<String, Object> payload,
+            Set<String> matchedWorkflowIds) {
+
+        TaskModel taskModel = executionDAO.getTask(taskId);
+        if (taskModel == null) {
+            LOGGER.debug("Task {} not found, may have been cleaned up", taskId);
+            return;
+        }
+
+        if (taskModel.getStatus().isTerminal()) {
+            LOGGER.debug("Task {} is already in terminal state: {}", taskId, taskModel.getStatus());
+            return;
+        }
+
+        TaskResult taskResult = new TaskResult(taskModel.toTask());
+        taskResult.setStatus(TaskResult.Status.COMPLETED);
+        taskResult.getOutputData().putAll(payload);
+
+        workflowExecutor.updateTask(taskResult);
+        matchedWorkflowIds.add(taskModel.getWorkflowInstanceId());
+
+        LOGGER.info(
+                "Completed webhook task {} in workflow {} via webhookId {}",
+                taskId,
+                taskModel.getWorkflowInstanceId(),
+                webhookId);
     }
 
     private void completeTask(
