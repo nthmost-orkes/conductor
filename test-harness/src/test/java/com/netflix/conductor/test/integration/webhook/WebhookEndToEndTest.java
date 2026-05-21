@@ -68,13 +68,8 @@ import static org.junit.Assert.assertTrue;
  *   <li>Verify the workflow completes successfully
  * </ol>
  *
- * <p>The full E2E tests (testWebhookCompletesWaitingTask, testWebhookWithHeaderVerification,
- * testMultipleTasksWaitingForSameWebhook) are currently disabled pending full integration of the
- * WAIT_FOR_WEBHOOK system task with the workflow executor. The webhook HTTP endpoint routing is
- * verified by testIncomingWebhookResourceBeanExists.
- *
- * <p>The webhook runtime components (system task, mapper, worker, service) are working correctly in
- * isolation (see WebhookHashingTest in the webhooks module).
+ * <p>The webhook runtime components (system task, mapper, worker, service) are working correctly.
+ * See also WebhookHashingTest in the webhooks module for unit tests.
  */
 @RunWith(SpringRunner.class)
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT, classes = ConductorTestApp.class)
@@ -119,8 +114,7 @@ public class WebhookEndToEndTest {
         objectMapper = new ObjectMapper();
     }
 
-    // TODO: Re-enable once /webhook/{id} POST routing issue is resolved
-    // @Test
+    @Test
     public void testWebhookCompletesWaitingTask() throws Exception {
         // 1. Create a webhook configuration
         String webhookId = createWebhookConfig("test-webhook-" + UUID.randomUUID());
@@ -199,8 +193,7 @@ public class WebhookEndToEndTest {
         assertNotNull("IncomingWebhookResource should be registered", resource);
     }
 
-    // TODO: Re-enable once WAIT_FOR_WEBHOOK system task is fully wired
-    // @Test
+    @Test
     public void testWebhookWithHeaderVerification() throws Exception {
         // Create webhook with header-based verification
         String webhookId =
@@ -252,8 +245,7 @@ public class WebhookEndToEndTest {
         assertEquals(WorkflowStatus.COMPLETED, completedWorkflow.getStatus());
     }
 
-    // TODO: Re-enable once WAIT_FOR_WEBHOOK system task is fully wired
-    // @Test
+    @Test
     public void testMultipleTasksWaitingForSameWebhook() throws Exception {
         // Create a single webhook config
         String webhookId = createWebhookConfig("multi-task-webhook-" + UUID.randomUUID());
