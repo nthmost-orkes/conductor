@@ -20,12 +20,17 @@ import org.conductoross.conductor.dao.webhook.WebhookDAO;
 import org.conductoross.conductor.webhook.model.IncomingWebhookEvent;
 import org.conductoross.conductor.webhook.model.WebhookConfig;
 
+import lombok.extern.slf4j.Slf4j;
+
+import static com.google.common.base.Preconditions.checkNotNull;
+
 /**
  * Default single-node implementation of {@link WebhookDAO}.
  *
  * <p>Backed by in-process maps; suitable for single-server deployments and tests. Multi-node
  * deployments should bind a persistent implementation (lands in a later PR).
  */
+@Slf4j
 public class InMemoryWebhookDAO implements WebhookDAO {
 
     private final ConcurrentHashMap<String, WebhookConfig> configs = new ConcurrentHashMap<>();
@@ -34,7 +39,10 @@ public class InMemoryWebhookDAO implements WebhookDAO {
 
     @Override
     public void createWebhook(String id, WebhookConfig config) {
+        checkNotNull(id, "Webhook id cannot be null");
+        checkNotNull(config, "WebhookConfig cannot be null");
         configs.put(id, config);
+        log.debug("Created webhook: id={}, name={}", id, config.getName());
     }
 
     @Override
@@ -49,12 +57,21 @@ public class InMemoryWebhookDAO implements WebhookDAO {
 
     @Override
     public void removeWebhook(String id) {
-        configs.remove(id);
+        checkNotNull(id, "Webhook id cannot be null");
+        WebhookConfig removed = configs.remove(id);
+        if (removed != null) {
+            log.debug("Removed webhook: id={}", id);
+        } else {
+            log.debug("Webhook not found for removal: id={}", id);
+        }
     }
 
     @Override
     public void createIncomingWebhookEvent(String id, IncomingWebhookEvent event) {
+        checkNotNull(id, "Event id cannot be null");
+        checkNotNull(event, "IncomingWebhookEvent cannot be null");
         events.put(id, event);
+        log.debug("Stored incoming webhook event: id={}, webhookId={}", id, event.getWebhookId());
     }
 
     @Override
@@ -64,6 +81,12 @@ public class InMemoryWebhookDAO implements WebhookDAO {
 
     @Override
     public void removeWebhookEvent(String id) {
-        events.remove(id);
+        checkNotNull(id, "Event id cannot be null");
+        IncomingWebhookEvent removed = events.remove(id);
+        if (removed != null) {
+            log.debug("Removed webhook event: id={}", id);
+        } else {
+            log.debug("Webhook event not found for removal: id={}", id);
+        }
     }
 }
