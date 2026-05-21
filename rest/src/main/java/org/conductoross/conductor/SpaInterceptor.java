@@ -39,13 +39,14 @@ public class SpaInterceptor implements HandlerInterceptor {
         String path = request.getRequestURI();
         log.debug("Service SPA page {}", path);
 
-        // Skip backend APIs, OpenAPI docs, health endpoints, and static resources.
+        // Skip backend APIs, OpenAPI docs, health endpoints, webhooks, and static resources.
         if (path.startsWith("/api/")
                 || path.startsWith("/api-docs")
                 || path.startsWith("/v3/api-docs")
                 || path.startsWith("/swagger-ui")
                 || path.startsWith("/actuator")
                 || path.startsWith("/health")
+                || path.startsWith("/webhook")
                 || path.equals("/error")
                 || path.contains(".")) {
             return true;
