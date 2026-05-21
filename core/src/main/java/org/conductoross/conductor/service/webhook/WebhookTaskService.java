@@ -30,7 +30,9 @@ public interface WebhookTaskService {
 
     void put(TaskModel taskModel, int workflowVersion);
 
-    class Constants {
+    final class Constants {
+
+        private Constants() {}
 
         public static final String WAIT_FOR_WEBHOOK = "WAIT_FOR_WEBHOOK";
         public static final String WEBHOOK_DELIMITER = ";";
