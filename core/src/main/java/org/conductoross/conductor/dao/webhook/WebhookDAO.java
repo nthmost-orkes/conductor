@@ -13,6 +13,7 @@
 package org.conductoross.conductor.dao.webhook;
 
 import java.util.List;
+import java.util.Map;
 
 import org.conductoross.conductor.webhook.model.IncomingWebhookEvent;
 import org.conductoross.conductor.webhook.model.WebhookConfig;
@@ -49,6 +50,17 @@ public interface WebhookDAO {
     WebhookConfig getWebhook(String webhookId);
 
     /**
+     * Returns all matchers for the given webhook ID.
+     *
+     * <p>Matchers map hash-prefix keys (e.g., "workflowName;version;taskRef") to their match
+     * criteria (JSONPath -> expected value).
+     *
+     * @param webhookId the webhook ID (must not be null)
+     * @return a map of matcher key to match criteria, or empty map if none
+     */
+    Map<String, Map<String, Object>> getMatchers(String webhookId);
+
+    /**
      * Creates or updates a webhook configuration. If a webhook with the given ID already exists, it
      * is replaced.
      *
@@ -72,12 +84,42 @@ public interface WebhookDAO {
     void removeWebhook(String id);
 
     /**
+     * Removes all matchers associated with the given webhook ID.
+     *
+     * @param id the webhook ID (must not be null)
+     */
+    void removeMatchers(String id);
+
+    /**
      * Returns all registered webhook configurations. The returned list is a fresh collection; the
      * caller may modify the list itself, but must not mutate its elements.
      *
      * @return all webhooks, or an empty list if none are registered (never {@code null})
      */
     List<WebhookConfig> getAllWebhooks();
+
+    /**
+     * Alias for {@link #getAllWebhooks()} to match Orkes naming.
+     *
+     * @return all webhooks, or an empty list if none are registered
+     */
+    default List<WebhookConfig> getWebhooks() {
+        return getAllWebhooks();
+    }
+
+    /**
+     * Creates matchers for the given webhook configuration.
+     *
+     * <p>Matchers are computed from the webhook's receiverWorkflowNamesToVersions and stored for
+     * fast lookup when incoming events arrive.
+     *
+     * @param webhookConfig the webhook configuration
+     * @param receiverWorkflowNamesToVersionsOverride optional override for workflow versions; if
+     *     null, uses webhookConfig.getReceiverWorkflowNamesToVersions()
+     */
+    void createMatchers(
+            WebhookConfig webhookConfig,
+            Map<String, Integer> receiverWorkflowNamesToVersionsOverride);
 
     /**
      * Creates or updates an incoming webhook event record. If an event with the given ID already
