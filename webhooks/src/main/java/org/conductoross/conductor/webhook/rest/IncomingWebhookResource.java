@@ -39,7 +39,10 @@ import io.swagger.v3.oas.annotations.Operation;
  */
 @RestController
 @RequestMapping(value = "/webhook")
-@ConditionalOnProperty(value = "conductor.webhooks.enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(
+        value = "conductor.webhooks.enabled",
+        havingValue = "true",
+        matchIfMissing = true)
 public class IncomingWebhookResource {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(IncomingWebhookResource.class);
@@ -53,7 +56,7 @@ public class IncomingWebhookResource {
     @PostMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "Receive an incoming webhook event")
     public String handleWebhook(
-            @PathVariable String id,
+            @PathVariable("id") String id,
             @RequestBody String bodyStr,
             @RequestParam(required = false) Map<String, Object> requestParams,
             @RequestHeader HttpHeaders headers) {
@@ -69,7 +72,7 @@ public class IncomingWebhookResource {
     @GetMapping("/{id}")
     @Operation(summary = "Handle webhook ping/verification request")
     public String handlePing(
-            @PathVariable String id,
+            @PathVariable("id") String id,
             @RequestParam(required = false) Map<String, Object> requestParams) {
 
         LOGGER.debug("Received webhook ping for id={}", id);
