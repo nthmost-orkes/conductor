@@ -36,12 +36,13 @@ import static org.junit.Assert.assertTrue;
  * Tests for webhook hash routing behavior.
  *
  * <p>These tests verify that:
+ *
  * <ul>
- *   <li>Multiple tasks with the same matches land in the same hash bucket</li>
- *   <li>Different workflow versions produce different hashes</li>
- *   <li>Task reference name iteration suffixes are stripped</li>
- *   <li>Hash computation is stable across map key ordering</li>
- *   <li>Concurrent registrations don't lose tasks</li>
+ *   <li>Multiple tasks with the same matches land in the same hash bucket
+ *   <li>Different workflow versions produce different hashes
+ *   <li>Task reference name iteration suffixes are stripped
+ *   <li>Hash computation is stable across map key ordering
+ *   <li>Concurrent registrations don't lose tasks
  * </ul>
  */
 public class WebhookHashingTest {
@@ -97,9 +98,12 @@ public class WebhookHashingTest {
         // The hash should be computed without the suffix
         Map<String, Object> matches = Map.of("batchId", "batch-789");
 
-        TaskModel iteration1 = createTask("task-iter-1", "batch-workflow", "process_item__1", matches);
-        TaskModel iteration2 = createTask("task-iter-2", "batch-workflow", "process_item__2", matches);
-        TaskModel noSuffix = createTask("task-no-suffix", "batch-workflow", "process_item", matches);
+        TaskModel iteration1 =
+                createTask("task-iter-1", "batch-workflow", "process_item__1", matches);
+        TaskModel iteration2 =
+                createTask("task-iter-2", "batch-workflow", "process_item__2", matches);
+        TaskModel noSuffix =
+                createTask("task-no-suffix", "batch-workflow", "process_item", matches);
 
         taskService.put(iteration1, 1);
         taskService.put(iteration2, 1);
@@ -165,24 +169,26 @@ public class WebhookHashingTest {
 
         for (int t = 0; t < numThreads; t++) {
             final int threadId = t;
-            pool.submit(() -> {
-                try {
-                    startLatch.await();
-                    for (int i = 0; i < tasksPerThread; i++) {
-                        TaskModel task = createTask(
-                                "task-" + threadId + "-" + i,
-                                "concurrent-workflow",
-                                "ref",
-                                matches);
-                        taskService.put(task, 1);
-                        successCount.incrementAndGet();
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                } finally {
-                    doneLatch.countDown();
-                }
-            });
+            pool.submit(
+                    () -> {
+                        try {
+                            startLatch.await();
+                            for (int i = 0; i < tasksPerThread; i++) {
+                                TaskModel task =
+                                        createTask(
+                                                "task-" + threadId + "-" + i,
+                                                "concurrent-workflow",
+                                                "ref",
+                                                matches);
+                                taskService.put(task, 1);
+                                successCount.incrementAndGet();
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        } finally {
+                            doneLatch.countDown();
+                        }
+                    });
         }
 
         startLatch.countDown();
@@ -239,10 +245,7 @@ public class WebhookHashingTest {
     // --- Helper methods ---
 
     private TaskModel createTask(
-            String taskId,
-            String workflowType,
-            String refName,
-            Map<String, Object> matches) {
+            String taskId, String workflowType, String refName, Map<String, Object> matches) {
         TaskModel task = new TaskModel();
         task.setTaskId(taskId);
         task.setWorkflowType(workflowType);
@@ -256,22 +259,18 @@ public class WebhookHashingTest {
     }
 
     /**
-     * Compute expected hash using the same algorithm as InMemoryWebhookTaskService.
-     * This is intentionally duplicated to catch any drift between test and impl.
+     * Compute expected hash using the same algorithm as InMemoryWebhookTaskService. This is
+     * intentionally duplicated to catch any drift between test and impl.
      */
     private String computeExpectedHash(
-            String workflowName,
-            int version,
-            String refName,
-            Map<String, Object> matches) {
+            String workflowName, int version, String refName, Map<String, Object> matches) {
         // Strip iteration suffix
         String[] parts = refName.split("__");
         String baseRefName = parts.length > 0 ? parts[0] : refName;
 
         StringBuilder hash = new StringBuilder(workflowName + ";" + version + ";" + baseRefName);
         // Sort keys
-        matches.keySet().stream().sorted().forEach(k ->
-                hash.append(";").append(matches.get(k)));
+        matches.keySet().stream().sorted().forEach(k -> hash.append(";").append(matches.get(k)));
         return hash.toString();
     }
 }
