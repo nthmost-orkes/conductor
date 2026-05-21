@@ -40,6 +40,11 @@ import static org.conductoross.conductor.service.webhook.WebhookTaskService.Cons
 public class InMemoryWebhookTaskService implements WebhookTaskService {
 
     private final ConcurrentHashMap<String, Set<String>> storage = new ConcurrentHashMap<>();
+    // Reverse lookup: webhookId -> Set<taskId> for finding tasks by webhook
+    private final ConcurrentHashMap<String, Set<String>> webhookIdToTasks =
+            new ConcurrentHashMap<>();
+    // Forward lookup: taskId -> webhookId for cleanup
+    private final ConcurrentHashMap<String, String> taskIdToWebhookId = new ConcurrentHashMap<>();
 
     @Override
     public void put(TaskModel task, int workflowVersion) {
@@ -53,6 +58,26 @@ public class InMemoryWebhookTaskService implements WebhookTaskService {
                     bucket.add(task.getTaskId());
                     return bucket;
                 });
+
+        // Register reverse lookup by webhookId if present in matches
+        Object webhookIdObj = expectedMatches.get("webhookId");
+        if (webhookIdObj != null) {
+            String webhookId = webhookIdObj.toString();
+            webhookIdToTasks.compute(
+                    webhookId,
+                    (key, taskIds) -> {
+                        Set<String> bucket =
+                                taskIds == null ? ConcurrentHashMap.newKeySet() : taskIds;
+                        bucket.add(task.getTaskId());
+                        return bucket;
+                    });
+            taskIdToWebhookId.put(task.getTaskId(), webhookId);
+            log.debug(
+                    "Registered webhook task by webhookId: taskId={}, webhookId={}",
+                    task.getTaskId(),
+                    webhookId);
+        }
+
         log.debug(
                 "Registered webhook task: taskId={}, workflowType={}, hash={}",
                 task.getTaskId(),
@@ -70,6 +95,18 @@ public class InMemoryWebhookTaskService implements WebhookTaskService {
     }
 
     @Override
+    public Set<String> getByWebhookId(String webhookId) {
+        checkNotNull(webhookId, "WebhookId cannot be null");
+        Set<String> taskIds = webhookIdToTasks.get(webhookId);
+        Set<String> result = taskIds == null ? Collections.emptySet() : new HashSet<>(taskIds);
+        log.debug(
+                "Lookup webhook tasks by webhookId: webhookId={}, found={}",
+                webhookId,
+                result.size());
+        return result;
+    }
+
+    @Override
     public void remove(String hash, String taskId) {
         checkNotNull(hash, "Hash cannot be null");
         checkNotNull(taskId, "TaskId cannot be null");
@@ -79,6 +116,18 @@ public class InMemoryWebhookTaskService implements WebhookTaskService {
                     taskIds.remove(taskId);
                     return taskIds.isEmpty() ? null : taskIds;
                 });
+
+        // Also remove from webhookId reverse lookup
+        String webhookId = taskIdToWebhookId.remove(taskId);
+        if (webhookId != null) {
+            webhookIdToTasks.computeIfPresent(
+                    webhookId,
+                    (key, taskIds) -> {
+                        taskIds.remove(taskId);
+                        return taskIds.isEmpty() ? null : taskIds;
+                    });
+        }
+
         log.debug("Removed webhook task: taskId={}, hash={}", taskId, hash);
     }
 

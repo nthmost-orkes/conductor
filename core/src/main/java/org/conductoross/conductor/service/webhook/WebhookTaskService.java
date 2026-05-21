@@ -41,6 +41,17 @@ public interface WebhookTaskService {
     Set<String> get(String hash);
 
     /**
+     * Returns all task IDs waiting for the given webhook ID.
+     *
+     * <p>This provides a reverse lookup by webhookId, enabling webhook events to find all waiting
+     * tasks regardless of their workflow/version/taskRef combination.
+     *
+     * @param webhookId the webhook ID to look up (must not be null)
+     * @return set of task IDs, or an empty set if none found (never {@code null})
+     */
+    Set<String> getByWebhookId(String webhookId);
+
+    /**
      * Registers a WAIT_FOR_WEBHOOK task so it can be matched by incoming webhook events. The task's
      * {@code inputData.matches} field is used to compute the hash key.
      *
