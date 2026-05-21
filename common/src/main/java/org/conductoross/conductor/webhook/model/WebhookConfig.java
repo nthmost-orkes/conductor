@@ -57,6 +57,8 @@ public class WebhookConfig {
     private String createdBy;
     private List<Tag> tags;
 
+    private List<WebhookExecutionHistory> webhookExecutionHistory;
+
     private String expression;
     private String evaluatorType;
 
