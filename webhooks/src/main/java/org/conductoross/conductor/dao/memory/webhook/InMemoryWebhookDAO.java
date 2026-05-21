@@ -13,7 +13,10 @@
 package org.conductoross.conductor.dao.memory.webhook;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.conductoross.conductor.dao.webhook.WebhookDAO;
@@ -35,6 +38,9 @@ public class InMemoryWebhookDAO implements WebhookDAO {
 
     private final ConcurrentHashMap<String, WebhookConfig> configs = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, IncomingWebhookEvent> events =
+            new ConcurrentHashMap<>();
+    // Maps webhookId -> (matcherKey -> matchCriteria)
+    private final ConcurrentHashMap<String, Map<String, Map<String, Object>>> matchers =
             new ConcurrentHashMap<>();
 
     @Override
@@ -88,5 +94,56 @@ public class InMemoryWebhookDAO implements WebhookDAO {
         } else {
             log.debug("Webhook event not found for removal: id={}", id);
         }
+    }
+
+    @Override
+    public Map<String, Map<String, Object>> getMatchers(String webhookId) {
+        checkNotNull(webhookId, "Webhook id cannot be null");
+        return matchers.getOrDefault(webhookId, Collections.emptyMap());
+    }
+
+    @Override
+    public void removeMatchers(String id) {
+        checkNotNull(id, "Webhook id cannot be null");
+        Map<String, Map<String, Object>> removed = matchers.remove(id);
+        if (removed != null) {
+            log.debug("Removed {} matchers for webhook: id={}", removed.size(), id);
+        }
+    }
+
+    @Override
+    public void createMatchers(
+            WebhookConfig webhookConfig,
+            Map<String, Integer> receiverWorkflowNamesToVersionsOverride) {
+        checkNotNull(webhookConfig, "WebhookConfig cannot be null");
+        checkNotNull(webhookConfig.getId(), "WebhookConfig id cannot be null");
+
+        Map<String, Integer> workflowVersions =
+                receiverWorkflowNamesToVersionsOverride != null
+                        ? receiverWorkflowNamesToVersionsOverride
+                        : webhookConfig.getReceiverWorkflowNamesToVersions();
+
+        if (workflowVersions == null || workflowVersions.isEmpty()) {
+            log.debug("No receiver workflows configured for webhook: id={}", webhookConfig.getId());
+            return;
+        }
+
+        // For the in-memory implementation, we store a simple mapping.
+        // Real implementations (Redis/Postgres) would compute and store hash prefixes.
+        Map<String, Map<String, Object>> matcherMap = new HashMap<>();
+
+        for (Map.Entry<String, Integer> entry : workflowVersions.entrySet()) {
+            String workflowName = entry.getKey();
+            Integer version = entry.getValue();
+            // Matcher key format: webhookId;workflowName;version
+            String matcherKey = webhookConfig.getId() + ";" + workflowName + ";" + version;
+            // For simplicity, store an empty match criteria map (no JSONPath filters)
+            // Real implementations would parse the webhook config's expression field
+            matcherMap.put(matcherKey, Collections.emptyMap());
+        }
+
+        matchers.put(webhookConfig.getId(), matcherMap);
+        log.debug(
+                "Created {} matchers for webhook: id={}", matcherMap.size(), webhookConfig.getId());
     }
 }
