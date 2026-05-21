@@ -24,10 +24,31 @@ import com.netflix.conductor.model.TaskModel;
  */
 public interface WebhookTaskService {
 
+    /**
+     * Removes a task registration from the given hash bucket.
+     *
+     * @param hash the hash key (must not be null)
+     * @param taskId the task ID to remove (must not be null)
+     */
     void remove(String hash, String taskId);
 
+    /**
+     * Returns all task IDs registered under the given hash.
+     *
+     * @param hash the hash key to look up (must not be null)
+     * @return set of task IDs, or an empty set if none found (never {@code null})
+     */
     Set<String> get(String hash);
 
+    /**
+     * Registers a WAIT_FOR_WEBHOOK task so it can be matched by incoming webhook events. The task's
+     * {@code inputData.matches} field is used to compute the hash key.
+     *
+     * @param taskModel the task to register (must not be null, must have matches in inputData)
+     * @param workflowVersion the workflow version (used in hash computation)
+     * @throws com.netflix.conductor.core.exception.NonTransientException if matches field is
+     *     missing
+     */
     void put(TaskModel taskModel, int workflowVersion);
 
     final class Constants {

@@ -31,26 +31,60 @@ import org.conductoross.conductor.webhook.model.WebhookConfig;
 public interface WebhookDAO {
 
     /**
+     * Returns the webhook event with the given ID, or {@code null} if not found.
+     *
+     * @param messageId the event ID to look up (must not be null)
+     * @return the event, or {@code null} if no event exists with this ID
      * @see WebhookDAO — the returned event must not be mutated by the caller.
      */
     IncomingWebhookEvent getWebhookEvent(String messageId);
 
     /**
+     * Returns the webhook configuration with the given ID, or {@code null} if not found.
+     *
+     * @param webhookId the webhook ID to look up (must not be null)
+     * @return the config, or {@code null} if no webhook exists with this ID
      * @see WebhookDAO — returned config must not be mutated by the caller.
      */
     WebhookConfig getWebhook(String webhookId);
 
+    /**
+     * Creates or updates a webhook configuration. If a webhook with the given ID already exists, it
+     * is replaced.
+     *
+     * @param id the webhook ID (must not be null)
+     * @param webhookConfig the configuration to store (must not be null)
+     */
     void createWebhook(String id, WebhookConfig webhookConfig);
 
+    /**
+     * Removes the webhook event with the given ID. No-op if the event does not exist.
+     *
+     * @param id the event ID to remove (must not be null)
+     */
     void removeWebhookEvent(String id);
 
+    /**
+     * Removes the webhook configuration with the given ID. No-op if the webhook does not exist.
+     *
+     * @param id the webhook ID to remove (must not be null)
+     */
     void removeWebhook(String id);
 
     /**
-     * @see WebhookDAO — the returned list is a fresh collection, but its elements must not be
-     *     mutated.
+     * Returns all registered webhook configurations. The returned list is a fresh collection; the
+     * caller may modify the list itself, but must not mutate its elements.
+     *
+     * @return all webhooks, or an empty list if none are registered (never {@code null})
      */
     List<WebhookConfig> getAllWebhooks();
 
+    /**
+     * Creates or updates an incoming webhook event record. If an event with the given ID already
+     * exists, it is replaced.
+     *
+     * @param id the event ID (must not be null)
+     * @param incomingWebhookEvent the event to store (must not be null)
+     */
     void createIncomingWebhookEvent(String id, IncomingWebhookEvent incomingWebhookEvent);
 }
