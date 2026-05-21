@@ -15,4 +15,14 @@ dependencies {
     implementation project(':conductor-core')
 
     implementation "com.google.guava:guava:${revGuava}"
+
+    // JSONPath for webhook payload matching
+    implementation "com.jayway.jsonpath:json-path:${revJsonPath}"
+
+    // Spring dependencies for REST controllers and configuration
+    implementation "org.springframework.boot:spring-boot-starter-web"
+    implementation "org.springframework.boot:spring-boot-autoconfigure"
+
+    // OpenAPI documentation
+    implementation "org.springdoc:springdoc-openapi-starter-webmvc-ui:${revSpringDoc}"
 }
