@@ -51,7 +51,8 @@ public enum TaskType {
     LLM_GET_EMBEDDINGS,
     LIST_MCP_TOOLS,
     CALL_MCP_TOOL,
-    PULL_WORKFLOW_MESSAGES;
+    PULL_WORKFLOW_MESSAGES,
+    WAIT_FOR_WEBHOOK;
 
     /**
      * TaskType constants representing each of the possible enumeration values. Motivation: to not
@@ -82,6 +83,7 @@ public enum TaskType {
     public static final String TASK_TYPE_FORK = "FORK";
     public static final String TASK_TYPE_NOOP = "NOOP";
     public static final String TASK_TYPE_PULL_WORKFLOW_MESSAGES = "PULL_WORKFLOW_MESSAGES";
+    public static final String TASK_TYPE_WAIT_FOR_WEBHOOK = "WAIT_FOR_WEBHOOK";
 
     private static final Set<String> BUILT_IN_TASKS = new HashSet<>();
 
