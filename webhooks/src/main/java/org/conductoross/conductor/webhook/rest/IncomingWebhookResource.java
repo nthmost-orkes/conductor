@@ -38,13 +38,8 @@ import io.swagger.v3.oas.annotations.Operation;
  * verified and queued for processing by the WebhookWorker.
  */
 @RestController
-@RequestMapping(
-        value = "/webhook",
-        produces = {MediaType.APPLICATION_JSON_VALUE})
-@ConditionalOnProperty(
-        value = "conductor.webhooks.enabled",
-        havingValue = "true",
-        matchIfMissing = true)
+@RequestMapping(value = "/webhook")
+@ConditionalOnProperty(value = "conductor.webhooks.enabled", havingValue = "true", matchIfMissing = true)
 public class IncomingWebhookResource {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(IncomingWebhookResource.class);
@@ -55,12 +50,12 @@ public class IncomingWebhookResource {
         this.incomingWebhookService = incomingWebhookService;
     }
 
-    @PostMapping("/{id}")
+    @PostMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "Receive an incoming webhook event")
     public String handleWebhook(
             @PathVariable String id,
             @RequestBody String bodyStr,
-            @RequestParam Map<String, Object> requestParams,
+            @RequestParam(required = false) Map<String, Object> requestParams,
             @RequestHeader HttpHeaders headers) {
 
         LOGGER.debug("Received webhook event for id={}", id);
@@ -74,7 +69,8 @@ public class IncomingWebhookResource {
     @GetMapping("/{id}")
     @Operation(summary = "Handle webhook ping/verification request")
     public String handlePing(
-            @PathVariable String id, @RequestParam Map<String, Object> requestParams) {
+            @PathVariable String id,
+            @RequestParam(required = false) Map<String, Object> requestParams) {
 
         LOGGER.debug("Received webhook ping for id={}", id);
         return incomingWebhookService.handlePing(id, requestParams);

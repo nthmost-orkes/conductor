@@ -19,7 +19,6 @@ import org.conductoross.conductor.service.webhook.WebhookTaskService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 
 /**
@@ -36,15 +35,6 @@ import org.springframework.context.annotation.Configuration;
         value = "conductor.webhooks.enabled",
         havingValue = "true",
         matchIfMissing = true)
-@ComponentScan(
-        basePackages = {
-            "org.conductoross.conductor.webhook",
-            "org.conductoross.conductor.webhook.config",
-            "org.conductoross.conductor.webhook.mapper",
-            "org.conductoross.conductor.webhook.rest",
-            "org.conductoross.conductor.webhook.service",
-            "org.conductoross.conductor.webhook.verifier"
-        })
 public class WebhookConfiguration {
 
     /**
