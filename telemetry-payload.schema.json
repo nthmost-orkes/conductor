@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://conductor-oss.github.io/schemas/telemetry-payload-v1.schema.json",
+  "title": "Conductor OSS Telemetry Payload",
+  "description": "Complete, authoritative schema for the opt-in telemetry payload Conductor sends once per version. See TELEMETRY.md. No field outside this schema is ever collected or sent.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "instance_id",
+    "conductor_version",
+    "sent_at",
+    "runtime",
+    "modules",
+    "scale"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Payload schema version. Bumped on any change to this schema."
+    },
+    "instance_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Random UUID generated once and stored locally. Not derived from hostname/IP/hardware; not linkable to identity."
+    },
+    "cluster_id": {
+      "type": ["string", "null"],
+      "format": "uuid",
+      "default": null,
+      "description": "Reserved. Optional shared identifier to collapse multi-node clusters into one deployment. Open question in the proposal; null in v1."
+    },
+    "conductor_version": {
+      "type": "string",
+      "description": "From VersionService.getVersion() (BuildProperties).",
+      "examples": ["3.21.5"]
+    },
+    "sent_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp of this send."
+    },
+    "email": {
+      "type": ["string", "null"],
+      "format": "email",
+      "default": null,
+      "description": "Present ONLY if the user explicitly provided one via a separate, independent opt-in. Absent/null for stats-only installs."
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jvm_version", "os_name", "os_arch", "cpu_count", "max_heap_mb"],
+      "properties": {
+        "jvm_version": {
+          "type": "string",
+          "description": "System.getProperty(\"java.version\").",
+          "examples": ["21.0.2"]
+        },
+        "os_name": {
+          "type": "string",
+          "description": "OperatingSystemMXBean / os.name.",
+          "examples": ["Linux", "Mac OS X", "Windows Server 2022"]
+        },
+        "os_arch": {
+          "type": "string",
+          "description": "os.arch.",
+          "examples": ["aarch64", "amd64"]
+        },
+        "cpu_count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Runtime.availableProcessors()."
+        },
+        "max_heap_mb": {
+          "type": "integer",
+          "minimum": 0,
+          "multipleOf": 1024,
+          "description": "Runtime.maxMemory() rounded to the nearest 1024 MB to avoid fingerprinting."
+        }
+      }
+    },
+    "modules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["db_type", "queue_type", "indexing_type", "event_queue_type", "external_payload_storage", "file_storage"],
+      "description": "Active backend modules. Values are the raw conductor.* property values (the type strings the operator configured). Free strings rather than enums so new backends don't break validation of older payloads; known values are listed per field.",
+      "properties": {
+        "db_type": {
+          "type": "string",
+          "description": "conductor.db.type. Known: cassandra, mysql, postgres, sqlite, redis_standalone, redis_cluster, redis_sentinel, memory."
+        },
+        "queue_type": {
+          "type": "string",
+          "description": "conductor.queue.type. Known: redis_standalone, redis_cluster, redis_sentinel, postgres, mysql, sqlite."
+        },
+        "indexing_type": {
+          "type": "string",
+          "description": "conductor.indexing.type; 'none' when conductor.indexing.enabled=false. Known: elasticsearch (legacy v7), elasticsearch8, opensearch2, opensearch3, postgres, sqlite, none."
+        },
+        "event_queue_type": {
+          "type": "string",
+          "description": "conductor.default-event-queue.type; 'none' if no external event queue is enabled. Known: kafka, amqp, sqs, nats, nats_stream, jsm, none."
+        },
+        "external_payload_storage": {
+          "type": "string",
+          "description": "conductor.external-payload-storage.type — offload store for large workflow/task payloads. 'none' = DummyPayloadStorage (default when unset). Known: s3, azureblob, postgres, none. ('mock' is test-harness-only and never reported.)"
+        },
+        "file_storage": {
+          "type": "string",
+          "description": "conductor.file-storage.type — the newer file-storage subsystem (conductor.file-storage.enabled defaults to false). 'none' when disabled (the default). Known: none, conductor, s3, azure-blob, gcs."
+        }
+      }
+    },
+    "scale": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "server_nodes",
+        "workflow_defs",
+        "task_defs",
+        "workflows_started_bucket",
+        "avg_queue_depth_bucket"
+      ],
+      "description": "All fields are coarse buckets. Exact counts and rates are never sent.",
+      "properties": {
+        "server_nodes": {
+          "type": "string",
+          "description": "Bucketed count of Conductor server nodes. Non-overlapping ranges.",
+          "enum": ["1", "2-5", "6-20", "21-100", "100+"]
+        },
+        "workflow_defs": {
+          "type": "string",
+          "description": "Bucketed count of workflow definitions (count only; names are never sent). Order-of-magnitude, non-overlapping.",
+          "enum": ["0", "1-9", "10-99", "100-999", "1000-9999", "10000+"]
+        },
+        "task_defs": {
+          "type": "string",
+          "description": "Bucketed count of task definitions (count only; names are never sent). Order-of-magnitude, non-overlapping.",
+          "enum": ["0", "1-9", "10-99", "100-999", "1000-9999", "10000+"]
+        },
+        "workflows_started_bucket": {
+          "type": "string",
+          "description": "Bucketed workflows started per day. Order-of-magnitude, non-overlapping.",
+          "enum": [
+            "0",
+            "1-99/day",
+            "100-999/day",
+            "1k-9999/day",
+            "10k-99k/day",
+            "100k-999k/day",
+            "1M+/day"
+          ]
+        },
+        "avg_queue_depth_bucket": {
+          "type": "string",
+          "description": "Bucketed average task queue depth. Order-of-magnitude, non-overlapping.",
+          "enum": ["0", "1-9", "10-99", "100-999", "1000-9999", "10000+"]
+        }
+      }
+    }
+  }
+}
