@@ -15,14 +15,20 @@ package org.conductoross.conductor.ai.vectordb;
 import java.util.List;
 import java.util.Map;
 
-import org.conductoross.conductor.ai.models.IndexedDoc;
+import org.conductoross.conductor.ai.model.IndexedDoc;
 
 public abstract class VectorDB {
 
+    protected String name;
     protected String type;
 
-    public VectorDB(String type) {
+    public VectorDB(String name, String type) {
+        this.name = name;
         this.type = type;
+    }
+
+    public String getName() {
+        return name;
     }
 
     public String getType() {

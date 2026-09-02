@@ -19,12 +19,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
-import org.conductoross.conductor.ai.models.AudioGenRequest;
-import org.conductoross.conductor.ai.models.ChatCompletion;
-import org.conductoross.conductor.ai.models.EmbeddingGenRequest;
-import org.conductoross.conductor.ai.models.ImageGenRequest;
-import org.conductoross.conductor.ai.models.LLMResponse;
-import org.conductoross.conductor.ai.models.ToolSpec;
+import org.conductoross.conductor.ai.model.AudioGenRequest;
+import org.conductoross.conductor.ai.model.ChatCompletion;
+import org.conductoross.conductor.ai.model.EmbeddingGenRequest;
+import org.conductoross.conductor.ai.model.ImageGenRequest;
+import org.conductoross.conductor.ai.model.LLMResponse;
+import org.conductoross.conductor.ai.model.ToolSpec;
+import org.conductoross.conductor.ai.model.VideoGenRequest;
+import org.conductoross.conductor.ai.video.VideoModel;
+import org.conductoross.conductor.ai.video.VideoOptions;
+import org.conductoross.conductor.ai.video.VideoOptionsBuilder;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.image.ImageModel;
@@ -55,6 +59,34 @@ public interface AIModel {
      * @return name of the foundation model provider. e.g. openai, anthropic etc.
      */
     String getModelProvider();
+
+    /**
+     * @return alternative provider names that resolve to this same provider
+     */
+    default List<String> getProviderAliases() {
+        return List.of();
+    }
+
+    /**
+     * Whether this provider accepts a chat-completion request whose last message has the {@code
+     * assistant} role — i.e. assistant-message prefill, used to nudge the model's response to start
+     * a certain way (and, in this codebase, the format in which {@link
+     * org.conductoross.conductor.ai.tasks.mapper.ChatCompleteTaskMapper}'s loop-history injection
+     * carries prior DO_WHILE iteration outputs back into the next iteration).
+     *
+     * <p>When this returns {@code false}, the mapper suppresses the same-refName loop-iteration
+     * assistant injection: those auto-attached assistant messages would either be rejected outright
+     * by the provider's API (e.g. Anthropic Claude Sonnet 4.6+ returns {@code 400 "This model does
+     * not support assistant message prefill. The conversation must end with a user message."}) or
+     * be silently mis-handled. Participants, tool calls, and sub-workflow context are unaffected by
+     * this flag.
+     *
+     * <p>Default is {@code true} to preserve historical behavior for providers (OpenAI Responses
+     * API with {@code previousResponseId}, Gemini, etc.) that accept trailing assistant messages.
+     */
+    default boolean supportsAssistantPrefill() {
+        return true;
+    }
 
     /**
      * Embedding generation
@@ -107,6 +139,62 @@ public interface AIModel {
      * @return Model to generate images
      */
     ImageModel getImageModel();
+
+    /**
+     * @param input Video gen request
+     * @return Options
+     */
+    default VideoOptions getVideoOptions(VideoGenRequest input) {
+        return VideoOptionsBuilder.builder()
+                .model(input.getModel())
+                .duration(input.getDuration())
+                .width(input.getWidth())
+                .height(input.getHeight())
+                .fps(input.getFps())
+                .outputFormat(input.getOutputFormat())
+                .n(input.getN())
+                .style(input.getStyle())
+                .motion(input.getMotion())
+                .seed(input.getSeed())
+                .guidanceScale(input.getGuidanceScale())
+                .aspectRatio(input.getAspectRatio())
+                .generateThumbnail(input.getGenerateThumbnail())
+                .thumbnailTimestamp(input.getThumbnailTimestamp())
+                .inputImage(input.getInputImage())
+                .negativePrompt(input.getNegativePrompt())
+                .personGeneration(input.getPersonGeneration())
+                .resolution(input.getResolution())
+                .generateAudio(input.getGenerateAudio())
+                .size(input.getSize())
+                .build();
+    }
+
+    /**
+     * @return Model to generate videos
+     */
+    default VideoModel getVideoModel() {
+        return null; // Default: video generation not supported
+    }
+
+    /**
+     * Generate video (async job submission)
+     *
+     * @param request Video generation request
+     * @return Response with job ID
+     */
+    default LLMResponse generateVideo(VideoGenRequest request) {
+        throw new UnsupportedOperationException("Video generation not supported by this provider");
+    }
+
+    /**
+     * Check video generation job status (polling)
+     *
+     * @param request Video generation request with jobId
+     * @return Response with current status or completed video
+     */
+    default LLMResponse checkVideoStatus(VideoGenRequest request) {
+        throw new UnsupportedOperationException("Video generation not supported by this provider");
+    }
 
     default LLMResponse generateAudio(AudioGenRequest request) {
         throw new UnsupportedOperationException();

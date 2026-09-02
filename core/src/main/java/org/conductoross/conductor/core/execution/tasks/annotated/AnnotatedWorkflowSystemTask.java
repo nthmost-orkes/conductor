@@ -14,10 +14,11 @@ package org.conductoross.conductor.core.execution.tasks.annotated;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Optional;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.conductoross.conductor.core.execution.tasks.TaskCancellationHandler;
 
+import com.netflix.conductor.common.metadata.tasks.TaskResult;
 import com.netflix.conductor.core.execution.WorkflowExecutor;
 import com.netflix.conductor.core.execution.tasks.WorkflowSystemTask;
 import com.netflix.conductor.model.TaskModel;
@@ -26,19 +27,25 @@ import com.netflix.conductor.sdk.workflow.executor.task.NonRetryableException;
 import com.netflix.conductor.sdk.workflow.executor.task.TaskContext;
 import com.netflix.conductor.sdk.workflow.task.WorkerTask;
 
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
+
 /**
  * Adapter that wraps a @WorkerTask annotated method as a WorkflowSystemTask. This enables
  * annotation-based system task development while maintaining compatibility with the existing
  * SystemTaskWorkerCoordinator infrastructure.
  */
+@Slf4j
 public class AnnotatedWorkflowSystemTask extends WorkflowSystemTask {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(AnnotatedWorkflowSystemTask.class);
+    @Getter private final Method method;
 
-    private final Method method;
-    private final Object bean;
-    private final WorkerTask annotation;
+    @Getter private final Object bean;
+
+    @Getter private final WorkerTask annotation;
+
     private final AnnotatedMethodParameterMapper parameterMapper;
+
     private final AnnotatedMethodResultMapper resultMapper;
 
     /**
@@ -73,9 +80,14 @@ public class AnnotatedWorkflowSystemTask extends WorkflowSystemTask {
     @Override
     public boolean execute(
             WorkflowModel workflow, TaskModel task, WorkflowExecutor workflowExecutor) {
-        TaskContext.set(task.toTask());
+        TaskContext taskContext = TaskContext.set(task.toTask());
+        // A plain annotated-worker return value is terminal by default. Long-running workers can
+        // override this execution state through their TaskContext without leaking TaskResult into
+        // their public output POJO.
+        taskContext.getTaskResult().setStatus(TaskResult.Status.COMPLETED);
+        taskContext.getTaskResult().setCallbackAfterSeconds(0);
         try {
-            LOGGER.debug(
+            log.debug(
                     "Executing annotated task {} for workflow {}",
                     getTaskType(),
                     workflow.getWorkflowId());
@@ -87,9 +99,9 @@ public class AnnotatedWorkflowSystemTask extends WorkflowSystemTask {
             Object result = method.invoke(bean, parameters);
 
             // Apply the result to the task
-            resultMapper.applyResult(result, task, method);
+            resultMapper.applyResult(result, task, method, taskContext.getTaskResult());
 
-            LOGGER.debug(
+            log.debug(
                     "Completed annotated task {} with status {}", getTaskType(), task.getStatus());
 
             return true;
@@ -98,9 +110,9 @@ public class AnnotatedWorkflowSystemTask extends WorkflowSystemTask {
             handleInvocationException(task, e);
             return true;
         } catch (Exception e) {
-            LOGGER.error("error executing annotated task " + getTaskType(), e);
+            log.error("error executing annotated task " + getTaskType(), e);
             task.setStatus(TaskModel.Status.FAILED);
-            task.setReasonForIncompletion(e.getMessage());
+            task.setReasonForIncompletion(getRootCauseMessage(e));
             return true;
         } finally {
             TaskContext.clear();
@@ -110,46 +122,66 @@ public class AnnotatedWorkflowSystemTask extends WorkflowSystemTask {
     private void handleInvocationException(TaskModel task, InvocationTargetException e) {
         Throwable cause = e.getCause();
 
-        LOGGER.error("Error executing annotated task " + getTaskType(), cause);
+        log.error("Error executing annotated task " + getTaskType(), cause);
 
+        String message = getRootCauseMessage(cause);
         if (cause instanceof NonRetryableException) {
             task.setStatus(TaskModel.Status.FAILED_WITH_TERMINAL_ERROR);
-            task.setReasonForIncompletion("Non-retryable error: " + cause.getMessage());
+            task.setReasonForIncompletion("Non-retryable error: " + message);
         } else {
             task.setStatus(TaskModel.Status.FAILED);
-            task.setReasonForIncompletion("Task execution failed: " + cause.getMessage());
+            task.setReasonForIncompletion("Task execution failed: " + message);
         }
+    }
+
+    /**
+     * Walk the exception cause chain to build a message that includes the root cause. This prevents
+     * wrapper exceptions (e.g. "Failed to generate content") from hiding the actual error (e.g.
+     * "404: This model is no longer available").
+     */
+    private String getRootCauseMessage(Throwable t) {
+        if (t == null) return "unknown error";
+        Throwable root = t;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        if (root == t) {
+            return t.getMessage();
+        }
+        return t.getMessage() + " — caused by: " + root.getMessage();
     }
 
     @Override
     public void cancel(WorkflowModel workflow, TaskModel task, WorkflowExecutor workflowExecutor) {
-        // Default implementation - annotated tasks typically don't need custom cancel
-        // logic
-        LOGGER.debug(
-                "Cancelling annotated task {} for workflow {}",
-                getTaskType(),
-                workflow.getWorkflowId());
-        task.setStatus(TaskModel.Status.CANCELED);
+        String workflowId =
+                workflow != null ? workflow.getWorkflowId() : task.getWorkflowInstanceId();
+        log.debug("Cancelling annotated task {} for workflow {}", getTaskType(), workflowId);
+        if (bean instanceof TaskCancellationHandler cancellationHandler) {
+            String reason =
+                    task.getReasonForIncompletion() != null
+                            ? task.getReasonForIncompletion()
+                            : "Annotated task canceled by workflow " + workflowId;
+            try {
+                cancellationHandler.cancel(task.toTask(), reason);
+            } catch (Exception e) {
+                // Cancellation is best effort. The Conductor task must still reach a terminal
+                // state even when the downstream agent is temporarily unavailable.
+                log.warn(
+                        "Failed to propagate cancellation for annotated task {}: {}",
+                        getTaskType(),
+                        e.getMessage(),
+                        e);
+            }
+        }
+        if (task.getStatus() == null || !task.getStatus().isTerminal()) {
+            task.setStatus(TaskModel.Status.CANCELED);
+        }
     }
 
-    /**
-     * @return The annotation metadata for this task
-     */
-    public WorkerTask getAnnotation() {
-        return annotation;
-    }
-
-    /**
-     * @return The method that implements this task
-     */
-    public Method getMethod() {
-        return method;
-    }
-
-    /**
-     * @return The Spring bean instance
-     */
-    public Object getBean() {
-        return bean;
+    @Override
+    public Optional<Long> getEvaluationOffset(TaskModel taskModel, long maxOffset) {
+        return taskModel.getCallbackAfterSeconds() > 0
+                ? Optional.of(taskModel.getCallbackAfterSeconds())
+                : Optional.empty();
     }
 }

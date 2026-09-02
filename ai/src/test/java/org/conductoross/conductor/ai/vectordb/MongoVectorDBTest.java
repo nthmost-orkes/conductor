@@ -22,7 +22,7 @@ import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
 import org.conductoross.conductor.ai.AIModelProvider;
 import org.conductoross.conductor.ai.LLMs;
-import org.conductoross.conductor.ai.models.StoreEmbeddingsInput;
+import org.conductoross.conductor.ai.model.StoreEmbeddingsInput;
 import org.conductoross.conductor.ai.tasks.worker.VectorDBWorkers;
 import org.conductoross.conductor.ai.vectordb.mongodb.MongoDBConfig;
 import org.conductoross.conductor.ai.vectordb.mongodb.MongoVectorDB;
@@ -85,22 +85,36 @@ public class MongoVectorDBTest {
         database = mongoClient.getDatabase(DATABASE_NAME);
 
         ObjectMapper objectMapper = new ObjectMapperProvider().getObjectMapper();
-        MongoDBConfig config = new MongoDBConfig();
-        config.setDatabase(DATABASE_NAME);
-        config.setConnectionString(mongoDBContainer.getConnectionString());
-
         AIModelProvider provider = new AIModelProvider(List.of(), new StandardEnvironment());
-        LLMs llm = new LLMs(null, new JsonSchemaValidator(objectMapper), provider);
+        LLMs llm =
+                new LLMs(
+                        null,
+                        new JsonSchemaValidator(objectMapper),
+                        provider,
+                        new okhttp3.OkHttpClient());
 
         MongoDBConfig mongoConfig = new MongoDBConfig();
         mongoConfig.setDatabase(DATABASE_NAME);
         mongoConfig.setConnectionString(mongoDBContainer.getConnectionString());
 
-        // Create VectorDB instance and wrap it in VectorDBConfig
-        MongoVectorDB mongoVectorDB = new MongoVectorDB(mongoConfig);
-        VectorDBConfig<VectorDB> vectorDBConfig = () -> mongoVectorDB;
+        // Create VectorDB instance
+        MongoVectorDB mongoVectorDB = new MongoVectorDB("mongodb-test", mongoConfig);
 
-        VectorDBProvider vectorDBProvider = new VectorDBProvider(List.of(vectorDBConfig));
+        // Create instance config with the vectorDB
+        VectorDBInstanceConfig instanceConfig = new VectorDBInstanceConfig();
+        VectorDBInstanceConfig.VectorDBInstance instance =
+                new VectorDBInstanceConfig.VectorDBInstance();
+        instance.setName("mongodb-test");
+        instance.setType("mongodb");
+        instance.setMongodb(mongoConfig);
+        instanceConfig.setInstances(List.of(instance));
+
+        @SuppressWarnings("unchecked")
+        org.springframework.beans.factory.ObjectProvider<VectorDB> noDefaults =
+                org.mockito.Mockito.mock(org.springframework.beans.factory.ObjectProvider.class);
+        org.mockito.Mockito.when(noDefaults.iterator())
+                .thenReturn(java.util.Collections.emptyIterator());
+        VectorDBProvider vectorDBProvider = new VectorDBProvider(instanceConfig, noDefaults);
         VectorDBs vectorDBs = new VectorDBs(vectorDBProvider);
         aiWorkers = new VectorDBWorkers(vectorDBs, llm);
     }
@@ -140,7 +154,7 @@ public class MongoVectorDBTest {
 
     private StoreEmbeddingsInput getMockStoreEmbeddingsInput(List<Float> embeddings) {
         StoreEmbeddingsInput storeEmbeddingsInput = new StoreEmbeddingsInput();
-        storeEmbeddingsInput.setVectorDB("mongovectordb");
+        storeEmbeddingsInput.setVectorDB("mongodb-test");
         storeEmbeddingsInput.setId("testId");
         storeEmbeddingsInput.setIndex("testindex");
         storeEmbeddingsInput.setMetadata(Map.of("key1", "val1"));

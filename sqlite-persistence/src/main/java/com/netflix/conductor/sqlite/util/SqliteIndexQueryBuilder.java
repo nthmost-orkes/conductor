@@ -24,6 +24,7 @@ import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 
+import com.netflix.conductor.common.metadata.workflow.WorkflowClassifier;
 import com.netflix.conductor.sqlite.config.SqliteProperties;
 
 public class SqliteIndexQueryBuilder {
@@ -48,7 +49,9 @@ public class SqliteIndexQueryBuilder {
         "task_type",
         "task_def_name",
         "update_time",
-        "json_data"
+        "json_data",
+        "parent_workflow_id",
+        "classifier"
     };
 
     private static final String[] VALID_SORT_ORDER = {"ASC", "DESC"};
@@ -65,7 +68,7 @@ public class SqliteIndexQueryBuilder {
             Pattern conditionRegex = Pattern.compile(CONDITION_REGEX);
             Matcher conditionMatcher = conditionRegex.matcher(query);
             if (conditionMatcher.find()) {
-                String[] valueArr = conditionMatcher.group(3).replaceAll("[\"()]", "").split(",");
+                String[] valueArr = conditionMatcher.group(3).replaceAll("[\"'()]", "").split(",");
                 ArrayList<String> values = new ArrayList<>(Arrays.asList(valueArr));
                 this.attribute = camelToSnake(conditionMatcher.group(1));
                 this.values = values;
@@ -81,10 +84,15 @@ public class SqliteIndexQueryBuilder {
         public String getQueryFragment() {
             if (operator.equals("IN")) {
                 // Create proper IN clause for SQLite
-                return attribute
-                        + " IN ("
-                        + String.join(",", Collections.nCopies(values.size(), "?"))
-                        + ")";
+                String inClause =
+                        attribute
+                                + " IN ("
+                                + String.join(",", Collections.nCopies(values.size(), "?"))
+                                + ")";
+                if (classifierMatchesUntagged()) {
+                    return "(" + inClause + " OR " + attribute + " IS NULL)";
+                }
+                return inClause;
             } else if (operator.equals("MATCH")) {
                 // SQLite FTS5 full-text search
                 return "json_data MATCH ?";
@@ -96,10 +104,28 @@ public class SqliteIndexQueryBuilder {
             } else {
                 if (attribute.endsWith("_time")) {
                     return attribute + " " + operator + " datetime(?)";
+                } else if (operator.equals("=")
+                        && values.size() == 1
+                        && values.get(0).contains("*")) {
+                    return "lower(" + attribute + ") LIKE lower(?)";
+                } else if (operator.equals("=") && classifierMatchesUntagged()) {
+                    return "(" + attribute + " = ? OR " + attribute + " IS NULL)";
                 } else {
                     return attribute + " " + operator + " ?";
                 }
             }
+        }
+
+        /**
+         * Rows indexed before the classifier column existed have a NULL classifier but are
+         * semantically untagged, i.e. plain workflows. When a filter asks for the untagged token
+         * ({@link WorkflowClassifier#WORKFLOW}), widen the predicate to also match those legacy
+         * NULL rows.
+         */
+        private boolean classifierMatchesUntagged() {
+            return "classifier".equals(attribute)
+                    && values != null
+                    && values.stream().anyMatch(WorkflowClassifier.WORKFLOW::equalsIgnoreCase);
         }
 
         private String getOperator(String op) {
@@ -116,7 +142,11 @@ public class SqliteIndexQueryBuilder {
                     q.addParameter(value);
                 }
             } else {
-                q.addParameter(values.get(0));
+                String val = values.get(0);
+                if (val.contains("*")) {
+                    val = val.replace("*", "%");
+                }
+                q.addParameter(val);
             }
         }
 
@@ -156,7 +186,7 @@ public class SqliteIndexQueryBuilder {
         this.freeText = freeText;
         this.start = start;
         this.count = count;
-        this.sort = sort;
+        this.sort = sort != null ? sort : Collections.emptyList();
         this.allowFullTextQueries = true;
         this.allowJsonQueries = true;
         this.parseQuery(query);
@@ -164,6 +194,10 @@ public class SqliteIndexQueryBuilder {
     }
 
     public String getQuery() {
+        return getQuery("json_data");
+    }
+
+    public String getQuery(String selectColumn) {
         String queryString = "";
         List<Condition> validConditions =
                 conditions.stream().filter(c -> c.isValid()).collect(Collectors.toList());
@@ -176,7 +210,15 @@ public class SqliteIndexQueryBuilder {
                                             .map(c -> c.getQueryFragment())
                                             .collect(Collectors.toList()));
         }
-        return "SELECT json_data FROM " + table + queryString + getSort() + " LIMIT ? OFFSET ?";
+        return hierarchyCte()
+                + "SELECT "
+                + selectColumn
+                + " FROM "
+                + table
+                + hierarchyJoin()
+                + queryString
+                + getSort()
+                + " LIMIT ? OFFSET ?";
     }
 
     public String getCountQuery() {
@@ -238,7 +280,10 @@ public class SqliteIndexQueryBuilder {
             if (splitCond.length == 2) {
                 String attribute = camelToSnake(splitCond[0]);
                 String order = splitCond[1].toUpperCase();
-                if (Arrays.asList(VALID_FIELDS).contains(attribute)
+                if ("agent_hierarchy".equals(attribute)
+                        && Arrays.asList(VALID_SORT_ORDER).contains(order)) {
+                    sortConds.add(agentHierarchySort(order));
+                } else if (Arrays.asList(VALID_FIELDS).contains(attribute)
                         && Arrays.asList(VALID_SORT_ORDER).contains(order)) {
                     sortConds.add(attribute + " " + order);
                 }
@@ -249,6 +294,54 @@ public class SqliteIndexQueryBuilder {
             return " ORDER BY " + String.join(", ", sortConds);
         }
         return "";
+    }
+
+    /**
+     * Groups an agent root and every descendant in depth-first order. The recursive CTE makes this
+     * a database operation before pagination, so a nested sub-agent cannot be separated from its
+     * ancestors by another execution page.
+     */
+    private String agentHierarchySort(String order) {
+        return "COALESCE(workflow_hierarchy.root_start_time, "
+                + table
+                + ".start_time) "
+                + order
+                + ", COALESCE(workflow_hierarchy.root_workflow_id, "
+                + table
+                + ".workflow_id) ASC, CASE WHEN workflow_hierarchy.workflow_id IS NULL THEN 1 ELSE 0 END ASC, "
+                + "workflow_hierarchy.hierarchy_path ASC";
+    }
+
+    private boolean hasAgentHierarchySort() {
+        return "workflow_index".equals(table)
+                && sort.stream()
+                        .map(s -> s.split(":", 2)[0])
+                        .map(SqliteIndexQueryBuilder::camelToSnake)
+                        .anyMatch("agent_hierarchy"::equals);
+    }
+
+    private String hierarchyCte() {
+        if (!hasAgentHierarchySort()) {
+            return "";
+        }
+        return "WITH RECURSIVE workflow_hierarchy(workflow_id, root_workflow_id, root_start_time, hierarchy_path) AS ("
+                + " SELECT workflow_id, workflow_id, start_time, '|' || workflow_id || '|'"
+                + " FROM workflow_index WHERE parent_workflow_id IS NULL OR parent_workflow_id = ''"
+                + " UNION ALL"
+                + " SELECT child.workflow_id, parent.root_workflow_id, parent.root_start_time,"
+                + " parent.hierarchy_path || child.workflow_id || '|'"
+                + " FROM workflow_index child JOIN workflow_hierarchy parent"
+                + " ON child.parent_workflow_id = parent.workflow_id"
+                + " WHERE instr(parent.hierarchy_path, '|' || child.workflow_id || '|') = 0"
+                + ") ";
+    }
+
+    private String hierarchyJoin() {
+        return hasAgentHierarchySort()
+                ? " LEFT JOIN workflow_hierarchy ON workflow_hierarchy.workflow_id = "
+                        + table
+                        + ".workflow_id"
+                : "";
     }
 
     private static String camelToSnake(String camel) {
